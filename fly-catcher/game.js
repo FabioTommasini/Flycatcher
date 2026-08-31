@@ -29,7 +29,8 @@ const Sfx = {
   ctx: null,
   masterGain: null,
   muted: false,
-  buzzNodes: null,
+  tunePlaying: false,
+  tuneTimeout: null,
 
   init() {
     if (this.ctx) return;
@@ -47,8 +48,6 @@ const Sfx = {
     kick.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
     kick.connect(this.ctx.destination);
     kick.start(0);
-
-    this.startAmbience();
   },
 
   // Safe to call repeatedly from any later user gesture - iOS Safari
@@ -65,68 +64,46 @@ const Sfx = {
     return this.muted;
   },
 
-  // Soft, continuous pond-at-dusk pad so the page doesn't feel silent.
-  startAmbience() {
-    const ctx = this.ctx;
-    const gain = ctx.createGain();
-    gain.gain.value = 0.05;
+  // A short, cheerful plucked-note loop for the landing page only.
+  startTune() {
+    if (!this.ctx || this.tunePlaying) return;
+    this.tunePlaying = true;
 
-    const osc1 = ctx.createOscillator();
-    osc1.type = 'sine';
-    osc1.frequency.value = 110;
-    const osc2 = ctx.createOscillator();
-    osc2.type = 'sine';
-    osc2.frequency.value = 164.81;
+    const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 587.33, 523.25];
+    let i = 0;
 
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.12;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 0.02;
-    lfo.connect(lfoGain);
-    lfoGain.connect(gain.gain);
-
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(this.masterGain);
-    osc1.start();
-    osc2.start();
-    lfo.start();
-  },
-
-  // Continuous insect buzz whose volume tracks how many flies are on screen.
-  setBuzzLevel(flyCount) {
-    if (!this.ctx) return;
-    if (!this.buzzNodes) {
+    const playNote = () => {
+      if (!this.tunePlaying) return;
       const ctx = this.ctx;
+      const t0 = ctx.currentTime;
+      const freq = notes[i % notes.length];
+      i++;
+
       const osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.value = 220;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.value = 260;
-      filter.Q.value = 6;
-
-      const tremolo = ctx.createOscillator();
-      tremolo.frequency.value = 24; // fast flutter = "buzz"
-      const tremoloGain = ctx.createGain();
-      tremoloGain.gain.value = 0.5;
-      tremolo.connect(tremoloGain);
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
 
       const gain = ctx.createGain();
-      gain.gain.value = 0;
-      tremoloGain.connect(gain.gain);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.15, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
 
-      osc.connect(filter);
-      filter.connect(gain);
+      osc.connect(gain);
       gain.connect(this.masterGain);
-      osc.start();
-      tremolo.start();
+      osc.start(t0);
+      osc.stop(t0 + 0.32);
 
-      this.buzzNodes = { gain };
+      this.tuneTimeout = setTimeout(playNote, 190);
+    };
+    playNote();
+  },
+
+  stopTune() {
+    this.tunePlaying = false;
+    if (this.tuneTimeout) {
+      clearTimeout(this.tuneTimeout);
+      this.tuneTimeout = null;
     }
-    const target = flyCount > 0 ? Math.min(0.04 + flyCount * 0.012, 0.14) : 0;
-    this.buzzNodes.gain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.25);
   },
 
   // Quick descending "thwip" for the tongue launching out of the mouth.
@@ -150,36 +127,58 @@ const Sfx = {
     osc.stop(t0 + 0.16);
   },
 
-  // Two-pulse low croak.
+  // A real frog call is a rapid buzzy pulse train (the vocal sac fluttering),
+  // not a smooth tone - shaped through two formant-like bandpass filters for
+  // a nasal "ribbit" honk, as a rising "rib" syllable then a lower "bit".
   playCroak() {
     if (!this.ctx) return;
     const ctx = this.ctx;
     const t0 = ctx.currentTime;
 
-    const pulse = (start, dur, freqStart, freqEnd) => {
-      const osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(freqStart, start);
-      osc.frequency.exponentialRampToValueAtTime(freqEnd, start + dur);
+    const syllable = (start, dur, baseFreq, freqSlide, pulseHz, peakGain) => {
+      const carrier = ctx.createOscillator();
+      carrier.type = 'sawtooth';
+      carrier.frequency.setValueAtTime(baseFreq, start);
+      carrier.frequency.linearRampToValueAtTime(baseFreq + freqSlide, start + dur);
 
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 800;
+      const formant1 = ctx.createBiquadFilter();
+      formant1.type = 'bandpass';
+      formant1.frequency.value = 600;
+      formant1.Q.value = 4;
 
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+      const formant2 = ctx.createBiquadFilter();
+      formant2.type = 'bandpass';
+      formant2.frequency.value = 1400;
+      formant2.Q.value = 3;
 
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(this.masterGain);
-      osc.start(start);
-      osc.stop(start + dur + 0.02);
+      const envelope = ctx.createGain();
+      envelope.gain.setValueAtTime(0.0001, start);
+      envelope.gain.linearRampToValueAtTime(peakGain, start + dur * 0.25);
+      envelope.gain.linearRampToValueAtTime(0.0001, start + dur);
+
+      // Fast amplitude pulsing is what makes it buzz like a vocal sac
+      // instead of ring like a smooth whistle.
+      const pulseOsc = ctx.createOscillator();
+      pulseOsc.type = 'square';
+      pulseOsc.frequency.value = pulseHz;
+      const pulseDepth = ctx.createGain();
+      pulseDepth.gain.value = peakGain * 0.8;
+      pulseOsc.connect(pulseDepth);
+      pulseDepth.connect(envelope.gain);
+
+      carrier.connect(formant1);
+      formant1.connect(formant2);
+      formant2.connect(envelope);
+      envelope.connect(this.masterGain);
+
+      carrier.start(start);
+      carrier.stop(start + dur + 0.02);
+      pulseOsc.start(start);
+      pulseOsc.stop(start + dur + 0.02);
     };
 
-    pulse(t0, 0.16, 180, 90);
-    pulse(t0 + 0.18, 0.22, 150, 70);
+    syllable(t0, 0.15, 140, 40, 75, 0.28); // "rib" - short, rising
+    syllable(t0 + 0.16, 0.32, 115, -35, 65, 0.32); // "bit" - longer, falling, deeper
   },
 };
 
@@ -386,10 +385,18 @@ class TitleScene extends Phaser.Scene {
     this.input.once('pointerdown', () => {
       Sfx.init();
       Sfx.resume();
-      Sfx.playCroak();
-      this.cameras.main.fadeOut(200, 11, 61, 92);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.start('FlyCatcherScene');
+      Sfx.startTune();
+
+      // Let the tune play through once on the landing page before a fun
+      // send-off croak and the fade into gameplay (where it's tongue-sound
+      // only from here on).
+      this.time.delayedCall(1600, () => {
+        Sfx.stopTune();
+        Sfx.playCroak();
+        this.cameras.main.fadeOut(300, 11, 61, 92);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+          this.scene.start('FlyCatcherScene');
+        });
       });
     });
   }
@@ -457,7 +464,6 @@ class FlyCatcherScene extends Phaser.Scene {
     this.input.on('pointerdown', this.handlePointerDown, this);
 
     this.spawnFly();
-    this.scheduleCroak();
   }
 
   buildUI() {
@@ -541,16 +547,6 @@ class FlyCatcherScene extends Phaser.Scene {
     fly.setCollideWorldBounds(true);
     fly.body.setAllowGravity(false);
     fly.setAngularVelocity(Phaser.Math.Between(-40, 40));
-  }
-
-  // ---- Frog croak ----
-
-  scheduleCroak() {
-    const delay = Phaser.Math.Between(9000, 20000);
-    this.time.delayedCall(delay, () => {
-      Sfx.playCroak();
-      this.scheduleCroak();
-    });
   }
 
   // ---- Tongue shooting ----
@@ -774,8 +770,6 @@ class FlyCatcherScene extends Phaser.Scene {
         fly.destroy();
       }
     });
-
-    Sfx.setBuzzLevel(this.flies.getLength());
 
     this.updateTongues(delta);
 
