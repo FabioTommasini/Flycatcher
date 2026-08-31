@@ -323,7 +323,31 @@ function createGameTextures(scene) {
   g.fillStyle(0xffffff, 1);
   g.fillCircle(4, 4, 4);
   g.generateTexture('particle', 8, 8);
+  g.clear();
+
+  // Ripple ring, used for the pond-splash transition between scenes.
+  g.lineStyle(4, 0xbfe9ff, 1);
+  g.strokeCircle(32, 32, 28);
+  g.generateTexture('ripple', 64, 64);
   g.destroy();
+}
+
+// A little pond-splash flourish: a few expanding, fading rings centered on
+// (x, y), used for the landing-to-game transition.
+function spawnRipples(scene, x, y) {
+  for (let i = 0; i < 3; i++) {
+    scene.time.delayedCall(i * 140, () => {
+      const ring = scene.add.image(x, y, 'ripple').setDepth(12).setAlpha(0.7).setScale(0.3);
+      scene.tweens.add({
+        targets: ring,
+        scale: 2.2,
+        alpha: 0,
+        duration: 700,
+        ease: 'Sine.easeOut',
+        onComplete: () => ring.destroy(),
+      });
+    });
+  }
 }
 
 function drawPondBackground(scene) {
@@ -427,7 +451,25 @@ class TitleScene extends Phaser.Scene {
       this.time.delayedCall(3300, () => {
         Sfx.stopTune();
         Sfx.playCroak();
-        this.cameras.main.fadeOut(300, 11, 61, 92);
+
+        // A little pond-splash flourish - the preview frog "dives" as the
+        // camera pushes in and the screen fades to the game.
+        spawnRipples(this, previewFrog.x, previewFrog.y + 40);
+        this.tweens.add({
+          targets: previewFrog,
+          scaleX: 0.7,
+          scaleY: 1.3,
+          y: previewFrog.y + 20,
+          duration: 250,
+          ease: 'Sine.easeIn',
+        });
+        this.tweens.add({
+          targets: this.cameras.main,
+          zoom: 1.5,
+          duration: 550,
+          ease: 'Sine.easeIn',
+        });
+        this.cameras.main.fadeOut(550, 11, 61, 92);
         this.cameras.main.once('camerafadeoutcomplete', () => {
           this.scene.start('FlyCatcherScene');
         });
@@ -460,12 +502,32 @@ class FlyCatcherScene extends Phaser.Scene {
   create() {
     createGameTextures(this); // no-op if the title scene already made these
     drawPondBackground(this);
-    this.cameras.main.fadeIn(200, 11, 61, 92);
+
+    // Mirror the title screen's push-in: start zoomed and faded out, then
+    // ease back to normal as the frog "lands" with a splash.
+    this.cameras.main.setZoom(1.5);
+    this.cameras.main.fadeIn(450, 11, 61, 92);
+    this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 1,
+      duration: 650,
+      delay: 80,
+      ease: 'Sine.easeOut',
+    });
 
     // Frog sits near bottom center.
     this.frogX = GAME_WIDTH / 2;
     this.frogY = GAME_HEIGHT - 70;
     this.frog = this.add.image(this.frogX, this.frogY, 'frog_closed');
+
+    spawnRipples(this, this.frogX, this.frogY + 35);
+    this.tweens.add({
+      targets: this.frog,
+      scaleX: { from: 1.15, to: 1 },
+      scaleY: { from: 0.82, to: 1 },
+      duration: 400,
+      ease: 'Back.easeOut',
+    });
 
     // The tongue must launch from the mouth drawn on the frog texture, not
     // an arbitrary point above the sprite - derive it from the same local
