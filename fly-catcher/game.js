@@ -183,6 +183,25 @@ const Sfx = {
   },
 };
 
+// Phaser's input system queues native pointer events and dispatches them on
+// the next game tick rather than inside the original browser event, which is
+// one tick too late for iOS Safari's strict "must touch the AudioContext
+// synchronously inside the real user gesture" unlock rule (Chrome is lenient
+// about this; Safari often isn't). Listening directly on the document with a
+// native handler guarantees Sfx.init()/resume() run in the actual gesture.
+(function installNativeAudioUnlock() {
+  const unlock = () => {
+    Sfx.init();
+    Sfx.resume();
+    ['touchend', 'touchstart', 'mousedown', 'pointerdown', 'keydown'].forEach((type) =>
+      document.removeEventListener(type, unlock)
+    );
+  };
+  ['touchend', 'touchstart', 'mousedown', 'pointerdown', 'keydown'].forEach((type) =>
+    document.addEventListener(type, unlock, { passive: true })
+  );
+})();
+
 // ---- Shared drawing helpers (used by both scenes) ----
 
 function createGameTextures(scene) {
