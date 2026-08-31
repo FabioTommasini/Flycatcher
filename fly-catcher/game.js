@@ -382,21 +382,26 @@ class TitleScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    this.input.once('pointerdown', () => {
-      Sfx.init();
-      Sfx.resume();
-      Sfx.startTune();
+    // First tap unlocks audio and starts the tune looping so it's never
+    // missed; a second tap stops it, plays a send-off croak, and starts the
+    // game (which is tongue-sound only from there on).
+    let audioStarted = false;
+    this.input.on('pointerdown', () => {
+      if (!audioStarted) {
+        audioStarted = true;
+        Sfx.init();
+        Sfx.resume();
+        Sfx.startTune();
+        playText.setText('TAP AGAIN TO PLAY');
+        return;
+      }
 
-      // Let the tune play through once on the landing page before a fun
-      // send-off croak and the fade into gameplay (where it's tongue-sound
-      // only from here on).
-      this.time.delayedCall(1600, () => {
-        Sfx.stopTune();
-        Sfx.playCroak();
-        this.cameras.main.fadeOut(300, 11, 61, 92);
-        this.cameras.main.once('camerafadeoutcomplete', () => {
-          this.scene.start('FlyCatcherScene');
-        });
+      this.input.removeAllListeners('pointerdown');
+      Sfx.stopTune();
+      Sfx.playCroak();
+      this.cameras.main.fadeOut(300, 11, 61, 92);
+      this.cameras.main.once('camerafadeoutcomplete', () => {
+        this.scene.start('FlyCatcherScene');
       });
     });
   }
