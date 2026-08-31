@@ -241,7 +241,7 @@ function createGameTextures(scene) {
   const g = scene.make.graphics({ x: 0, y: 0, add: false });
   const cx = FROG_CX, cy = FROG_CY;
 
-  const drawFrogBody = () => {
+  const drawFrogBody = (eyesOpen) => {
     // Back legs (darker green, behind body)
     g.fillStyle(0x1b5e20, 1);
     g.fillEllipse(cx - 58, cy + 28, 34, 20);
@@ -262,23 +262,34 @@ function createGameTextures(scene) {
     g.fillStyle(0xa5d6a7, 1);
     g.fillEllipse(cx, cy + 20, 70, 42);
 
-    // Eyes (white with black pupils), sitting on top of the head
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(cx - 34, cy - 48, 20);
-    g.fillCircle(cx + 34, cy - 48, 20);
-    g.lineStyle(2, 0x1b5e20, 1);
-    g.strokeCircle(cx - 34, cy - 48, 20);
-    g.strokeCircle(cx + 34, cy - 48, 20);
-    g.fillStyle(0x000000, 1);
-    g.fillCircle(cx - 34, cy - 45, 9);
-    g.fillCircle(cx + 34, cy - 45, 9);
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(cx - 37, cy - 49, 3);
-    g.fillCircle(cx + 31, cy - 49, 3);
+    if (eyesOpen) {
+      // Eyes (white with black pupils), sitting on top of the head
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(cx - 34, cy - 48, 20);
+      g.fillCircle(cx + 34, cy - 48, 20);
+      g.lineStyle(2, 0x1b5e20, 1);
+      g.strokeCircle(cx - 34, cy - 48, 20);
+      g.strokeCircle(cx + 34, cy - 48, 20);
+      g.fillStyle(0x000000, 1);
+      g.fillCircle(cx - 34, cy - 45, 9);
+      g.fillCircle(cx + 34, cy - 45, 9);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(cx - 37, cy - 49, 3);
+      g.fillCircle(cx + 31, cy - 49, 3);
+    } else {
+      // Blink: simple closed-eyelid curves where the eyes normally sit.
+      g.lineStyle(4, 0x1b5e20, 1);
+      g.beginPath();
+      g.arc(cx - 34, cy - 44, 16, Phaser.Math.DegToRad(20), Phaser.Math.DegToRad(160), false);
+      g.strokePath();
+      g.beginPath();
+      g.arc(cx + 34, cy - 44, 16, Phaser.Math.DegToRad(20), Phaser.Math.DegToRad(160), false);
+      g.strokePath();
+    }
   };
 
   // Closed mouth: a simple curved line.
-  drawFrogBody();
+  drawFrogBody(true);
   g.lineStyle(4, 0x8d3b2f, 1);
   g.beginPath();
   g.arc(cx, cy - 8, 46, Phaser.Math.DegToRad(15), Phaser.Math.DegToRad(165), false);
@@ -286,8 +297,17 @@ function createGameTextures(scene) {
   g.generateTexture('frog_closed', FROG_TEX_W, FROG_TEX_H);
   g.clear();
 
+  // Closed mouth, blinking - same as above with the eyes shut.
+  drawFrogBody(false);
+  g.lineStyle(4, 0x8d3b2f, 1);
+  g.beginPath();
+  g.arc(cx, cy - 8, 46, Phaser.Math.DegToRad(15), Phaser.Math.DegToRad(165), false);
+  g.strokePath();
+  g.generateTexture('frog_closed_blink', FROG_TEX_W, FROG_TEX_H);
+  g.clear();
+
   // Open mouth: a dark oval cavity the tongue launches from.
-  drawFrogBody();
+  drawFrogBody(true);
   g.fillStyle(0x5c1f1f, 1);
   g.fillEllipse(cx, cy + 2, 62, 30);
   g.lineStyle(3, 0x3b1010, 1);
@@ -296,6 +316,18 @@ function createGameTextures(scene) {
   g.fillRect(cx - 26, cy - 10, 10, 8);
   g.fillRect(cx + 16, cy - 10, 10, 8);
   g.generateTexture('frog_open', FROG_TEX_W, FROG_TEX_H);
+  g.clear();
+
+  // Open mouth, blinking - same as above with the eyes shut.
+  drawFrogBody(false);
+  g.fillStyle(0x5c1f1f, 1);
+  g.fillEllipse(cx, cy + 2, 62, 30);
+  g.lineStyle(3, 0x3b1010, 1);
+  g.strokeEllipse(cx, cy + 2, 62, 30);
+  g.fillStyle(0xffffff, 1);
+  g.fillRect(cx - 26, cy - 10, 10, 8);
+  g.fillRect(cx + 16, cy - 10, 10, 8);
+  g.generateTexture('frog_open_blink', FROG_TEX_W, FROG_TEX_H);
   g.clear();
 
   // Fly textures (a few colors).
@@ -348,6 +380,24 @@ function spawnRipples(scene, x, y) {
       });
     });
   }
+}
+
+// Randomly blinks a frog sprite (both eyes together) every 3-10 seconds by
+// briefly swapping to a "_blink" variant of its current texture and back.
+// getBaseKey lets callers with more than one frog state (mouth open/closed)
+// report the correct non-blink texture to restore at the moment it matters,
+// rather than one captured when the blink was scheduled.
+function scheduleBlink(scene, frogSprite, getBaseKey) {
+  const delay = Phaser.Math.Between(3000, 10000);
+  scene.time.delayedCall(delay, () => {
+    if (frogSprite.active) {
+      frogSprite.setTexture(getBaseKey() + '_blink');
+      scene.time.delayedCall(130, () => {
+        if (frogSprite.active) frogSprite.setTexture(getBaseKey());
+      });
+    }
+    scheduleBlink(scene, frogSprite, getBaseKey);
+  });
 }
 
 function drawPondBackground(scene) {
@@ -406,6 +456,7 @@ class TitleScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+    scheduleBlink(this, previewFrog, () => 'frog_closed');
 
     const instructions =
       "Tap anywhere on the pond to launch\nthe frog's tongue toward a fly.\nChain catches quickly for combo bonuses!";
@@ -528,6 +579,7 @@ class FlyCatcherScene extends Phaser.Scene {
       duration: 400,
       ease: 'Back.easeOut',
     });
+    scheduleBlink(this, this.frog, () => (this.activeTongueCount > 0 ? 'frog_open' : 'frog_closed'));
 
     // The tongue must launch from the mouth drawn on the frog texture, not
     // an arbitrary point above the sprite - derive it from the same local
