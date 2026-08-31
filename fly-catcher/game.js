@@ -39,11 +39,22 @@ const Sfx = {
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = this.muted ? 0 : 1;
     this.masterGain.connect(this.ctx.destination);
+
+    // iOS Safari sometimes leaves the context "running" but silent unless a
+    // real buffer (not just an oscillator) is played inside the unlocking
+    // gesture, so kick it with one silent sample as extra insurance.
+    const kick = this.ctx.createBufferSource();
+    kick.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+    kick.connect(this.ctx.destination);
+    kick.start(0);
+
     this.startAmbience();
   },
 
+  // Safe to call repeatedly from any later user gesture - iOS Safari
+  // occasionally needs more than one nudge before playback truly starts.
   resume() {
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx && this.ctx.state !== 'running') this.ctx.resume();
   },
 
   toggleMute() {
@@ -529,6 +540,8 @@ class FlyCatcherScene extends Phaser.Scene {
   // it either reaches a fly or its max length, then snaps back to the mouth.
 
   shootTongue(pointer) {
+    Sfx.resume(); // extra nudge on a real gesture, in case iOS left it suspended
+
     if (!this.gameStarted) {
       this.gameStarted = true;
       this.tweens.add({
@@ -778,6 +791,8 @@ const config = {
   },
   scene: [TitleScene, FlyCatcherScene],
 };
+
+window.Sfx = Sfx; // exposed for troubleshooting from the browser console
 
 window.addEventListener('load', () => {
   new Phaser.Game(config);
