@@ -19,6 +19,7 @@ class FlyCatcherScene extends Phaser.Scene {
     this.elapsed = 0;
     this.spawnAccumulator = 0;
     this.tongues = [];
+    this.activeTongueCount = 0;
     this.gameStarted = false;
   }
 
@@ -31,26 +32,16 @@ class FlyCatcherScene extends Phaser.Scene {
     // Frog sits near bottom center.
     this.frogX = GAME_WIDTH / 2;
     this.frogY = GAME_HEIGHT - 70;
-    this.frog = this.add.image(this.frogX, this.frogY, 'frog');
+    this.frog = this.add.image(this.frogX, this.frogY, 'frog_closed');
+    this.mouthX = this.frogX;
     this.mouthY = this.frogY - 58;
 
     // Flies physics group.
     this.flies = this.physics.add.group();
 
-    // Tongue tips physics group (invisible bodies used for overlap detection).
-    this.tongueTips = this.physics.add.group();
-
     // World bounds: bottom extended well past the screen so flies bounce off
     // top/left/right but simply fall away (and get removed) at the bottom.
     this.physics.world.setBounds(0, -40, GAME_WIDTH, GAME_HEIGHT + 400);
-
-    this.physics.add.overlap(
-      this.tongueTips,
-      this.flies,
-      this.onTongueHitFly,
-      undefined,
-      this
-    );
 
     // Particle emitter used for the catch burst.
     this.burstEmitter = this.add.particles('particle').createEmitter({
@@ -73,52 +64,66 @@ class FlyCatcherScene extends Phaser.Scene {
   }
 
   createTextures() {
-    // --- Frog texture ---
+    // --- Frog textures (closed & open mouth, for the tongue animation) ---
     const g = this.make.graphics({ x: 0, y: 0, add: false });
     const w = 170, h = 150;
     const cx = w / 2, cy = 95;
 
-    // Back legs (darker green, behind body)
-    g.fillStyle(0x1b5e20, 1);
-    g.fillEllipse(cx - 58, cy + 28, 34, 20);
-    g.fillEllipse(cx + 58, cy + 28, 34, 20);
+    const drawFrogBody = () => {
+      // Back legs (darker green, behind body)
+      g.fillStyle(0x1b5e20, 1);
+      g.fillEllipse(cx - 58, cy + 28, 34, 20);
+      g.fillEllipse(cx + 58, cy + 28, 34, 20);
 
-    // Body
-    g.fillStyle(0x2e8b3d, 1);
-    g.fillEllipse(cx, cy, 140, 108);
-    g.lineStyle(3, 0x1b5e20, 1);
-    g.strokeEllipse(cx, cy, 140, 108);
+      // Body
+      g.fillStyle(0x2e8b3d, 1);
+      g.fillEllipse(cx, cy, 140, 108);
+      g.lineStyle(3, 0x1b5e20, 1);
+      g.strokeEllipse(cx, cy, 140, 108);
 
-    // Front legs (lighter green, in front of body)
-    g.fillStyle(0x388e3c, 1);
-    g.fillEllipse(cx - 42, cy + 55, 28, 18);
-    g.fillEllipse(cx + 42, cy + 55, 28, 18);
+      // Front legs (lighter green, in front of body)
+      g.fillStyle(0x388e3c, 1);
+      g.fillEllipse(cx - 42, cy + 55, 28, 18);
+      g.fillEllipse(cx + 42, cy + 55, 28, 18);
 
-    // Belly patch
-    g.fillStyle(0xa5d6a7, 1);
-    g.fillEllipse(cx, cy + 20, 70, 42);
+      // Belly patch
+      g.fillStyle(0xa5d6a7, 1);
+      g.fillEllipse(cx, cy + 20, 70, 42);
 
-    // Eyes (white with black pupils), sitting on top of the head
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(cx - 34, cy - 48, 20);
-    g.fillCircle(cx + 34, cy - 48, 20);
-    g.lineStyle(2, 0x1b5e20, 1);
-    g.strokeCircle(cx - 34, cy - 48, 20);
-    g.strokeCircle(cx + 34, cy - 48, 20);
-    g.fillStyle(0x000000, 1);
-    g.fillCircle(cx - 34, cy - 45, 9);
-    g.fillCircle(cx + 34, cy - 45, 9);
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(cx - 37, cy - 49, 3);
-    g.fillCircle(cx + 31, cy - 49, 3);
+      // Eyes (white with black pupils), sitting on top of the head
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(cx - 34, cy - 48, 20);
+      g.fillCircle(cx + 34, cy - 48, 20);
+      g.lineStyle(2, 0x1b5e20, 1);
+      g.strokeCircle(cx - 34, cy - 48, 20);
+      g.strokeCircle(cx + 34, cy - 48, 20);
+      g.fillStyle(0x000000, 1);
+      g.fillCircle(cx - 34, cy - 45, 9);
+      g.fillCircle(cx + 34, cy - 45, 9);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(cx - 37, cy - 49, 3);
+      g.fillCircle(cx + 31, cy - 49, 3);
+    };
 
-    // Mouth
+    // Closed mouth: a simple curved line.
+    drawFrogBody();
     g.lineStyle(4, 0x8d3b2f, 1);
     g.beginPath();
     g.arc(cx, cy - 8, 46, Phaser.Math.DegToRad(15), Phaser.Math.DegToRad(165), false);
     g.strokePath();
+    g.generateTexture('frog_closed', w, h);
+    g.clear();
 
-    g.generateTexture('frog', w, h);
+    // Open mouth: a dark oval cavity the tongue appears to launch from.
+    drawFrogBody();
+    g.fillStyle(0x5c1f1f, 1);
+    g.fillEllipse(cx, cy + 2, 62, 30);
+    g.lineStyle(3, 0x3b1010, 1);
+    g.strokeEllipse(cx, cy + 2, 62, 30);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(cx - 26, cy - 10, 10, 8);
+    g.fillRect(cx + 16, cy - 10, 10, 8);
+    g.generateTexture('frog_open', w, h);
     g.clear();
 
     // --- Fly textures (a few colors) ---
@@ -144,14 +149,6 @@ class FlyCatcherScene extends Phaser.Scene {
       g.generateTexture('fly_' + i, fw, fh);
       g.clear();
     });
-
-    // --- Tongue segment texture (pink circle) ---
-    g.fillStyle(0xff6f9c, 1);
-    g.fillCircle(8, 8, 8);
-    g.lineStyle(1.5, 0xd6497a, 1);
-    g.strokeCircle(8, 8, 8);
-    g.generateTexture('tongueSegment', 16, 16);
-    g.clear();
 
     // --- Generic particle texture ---
     g.fillStyle(0xffffff, 1);
@@ -200,7 +197,7 @@ class FlyCatcherScene extends Phaser.Scene {
       .setDepth(20);
 
     this.instructionText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'TAP TO CATCH FLIES!', {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'TAP A FLY TO CATCH IT!', {
         fontFamily: 'Arial, sans-serif',
         fontSize: '32px',
         color: '#ffffff',
@@ -247,8 +244,11 @@ class FlyCatcherScene extends Phaser.Scene {
   }
 
   // ---- Tongue shooting ----
+  // The tongue is aimed at the tap point: it extends in a straight line from
+  // the frog's mouth toward the target, stopping (and retracting) as soon as
+  // it either reaches a fly or its max length, then snaps back to the mouth.
 
-  shootTongue() {
+  shootTongue(pointer) {
     if (!this.gameStarted) {
       this.gameStarted = true;
       this.tweens.add({
@@ -259,23 +259,31 @@ class FlyCatcherScene extends Phaser.Scene {
       });
     }
 
-    const startY = this.mouthY;
-    const tip = this.tongueTips.create(this.frogX, startY, 'tongueSegment');
-    tip.body.setAllowGravity(false);
-    tip.setDepth(15);
-    tip.setVelocityY(-820);
+    const originX = this.mouthX;
+    const originY = this.mouthY;
 
-    const graphics = this.add.graphics().setDepth(14);
+    // Always aim at least somewhat upward, even if the tap lands low on screen.
+    const targetX = pointer.x;
+    const targetY = Math.min(pointer.y, originY - 20);
+
+    const dx = targetX - originX;
+    const dy = targetY - originY;
+    const rawDist = Math.hypot(dx, dy) || 1;
+    const maxLength = Phaser.Math.Clamp(rawDist, 40, 740);
 
     const tongue = {
-      sprite: tip,
-      graphics,
-      startY,
+      originX,
+      originY,
+      dirX: dx / rawDist,
+      dirY: dy / rawDist,
+      maxLength,
+      length: 0,
       state: 'extending',
-      alpha: 1,
+      graphics: this.add.graphics().setDepth(14),
     };
-    tip.tongueRef = tongue;
     this.tongues.push(tongue);
+    this.activeTongueCount++;
+    this.frog.setTexture('frog_open');
 
     // Small squash animation on the frog for feedback.
     this.tweens.add({
@@ -287,47 +295,64 @@ class FlyCatcherScene extends Phaser.Scene {
     });
   }
 
-  onTongueHitFly(tip, fly) {
-    if (tip.tongueRef.state !== 'extending') return;
-    this.catchFly(fly, tip.x, tip.y);
-    tip.tongueRef.state = 'retracting';
-    tip.body.enable = false;
-  }
+  updateTongues(delta) {
+    const EXTEND_SPEED = 1300; // px/sec
+    const RETRACT_SPEED = 1700; // px/sec
+    const CATCH_RADIUS = 22;
 
-  updateTongues() {
-    const topLimit = 20;
     for (let i = this.tongues.length - 1; i >= 0; i--) {
       const t = this.tongues[i];
 
-      if (t.state === 'extending' && t.sprite.y <= topLimit) {
-        t.state = 'retracting';
-        t.sprite.body.enable = false;
-      }
+      if (t.state === 'extending') {
+        t.length = Math.min(t.length + (EXTEND_SPEED * delta) / 1000, t.maxLength);
 
-      if (t.state === 'retracting') {
-        t.alpha *= 0.82;
-        t.sprite.setAlpha(t.alpha);
-        t.graphics.setAlpha(t.alpha);
-        if (t.alpha < 0.05) {
-          t.sprite.destroy();
-          t.graphics.destroy();
-          this.tongues.splice(i, 1);
-          continue;
+        const tipX = t.originX + t.dirX * t.length;
+        const tipY = t.originY + t.dirY * t.length;
+
+        let caughtFly = null;
+        this.flies.children.each((fly) => {
+          if (!caughtFly && Phaser.Math.Distance.Between(tipX, tipY, fly.x, fly.y) < CATCH_RADIUS) {
+            caughtFly = fly;
+          }
+        });
+
+        if (caughtFly) {
+          this.catchFly(caughtFly, tipX, tipY);
+          t.state = 'retracting';
+        } else if (t.length >= t.maxLength) {
+          t.state = 'retracting';
         }
+      } else {
+        t.length = Math.max(t.length - (RETRACT_SPEED * delta) / 1000, 0);
       }
 
-      // Redraw the chain of pink circles between the frog mouth and the tip.
+      const tipX = t.originX + t.dirX * t.length;
+      const tipY = t.originY + t.dirY * t.length;
+
+      // Draw the tongue as a stretchy pink capsule with a highlight stripe.
       t.graphics.clear();
-      const totalDist = t.startY - t.sprite.y;
-      const step = 14;
-      const segments = Math.max(1, Math.floor(totalDist / step));
-      for (let s = 0; s <= segments; s++) {
-        const y = t.startY - s * step;
-        const fade = segments === 0 ? 1 : s / segments; // more opaque near the tip
-        const alpha = Phaser.Math.Clamp(0.25 + fade * 0.75, 0, 1);
-        const radius = 6 + fade * 3;
-        t.graphics.fillStyle(0xff6f9c, alpha);
-        t.graphics.fillCircle(this.frogX, y, radius);
+      if (t.length > 1) {
+        t.graphics.lineStyle(14, 0xff6f9c, 1);
+        t.graphics.beginPath();
+        t.graphics.moveTo(t.originX, t.originY);
+        t.graphics.lineTo(tipX, tipY);
+        t.graphics.strokePath();
+        t.graphics.fillStyle(0xff6f9c, 1);
+        t.graphics.fillCircle(tipX, tipY, 9);
+        t.graphics.lineStyle(4, 0xffc1d9, 0.85);
+        t.graphics.beginPath();
+        t.graphics.moveTo(t.originX, t.originY);
+        t.graphics.lineTo(tipX, tipY);
+        t.graphics.strokePath();
+      }
+
+      if (t.state === 'retracting' && t.length <= 0) {
+        t.graphics.destroy();
+        this.tongues.splice(i, 1);
+        this.activeTongueCount = Math.max(0, this.activeTongueCount - 1);
+        if (this.activeTongueCount === 0) {
+          this.frog.setTexture('frog_closed');
+        }
       }
     }
   }
@@ -437,7 +462,7 @@ class FlyCatcherScene extends Phaser.Scene {
       }
     });
 
-    this.updateTongues();
+    this.updateTongues(delta);
 
     // Reset combo if too much time has passed since the last catch.
     if (
