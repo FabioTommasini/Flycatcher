@@ -64,36 +64,60 @@ const Sfx = {
     return this.muted;
   },
 
-  // A short, cheerful plucked-note loop for the landing page only.
+  // A calm, slow melodic loop over a soft sustained pad, for the landing
+  // page only - sine tones with gentle attacks and long releases rather
+  // than a peppy plucked run.
   startTune() {
     if (!this.ctx || this.tunePlaying) return;
     this.tunePlaying = true;
+    const ctx = this.ctx;
 
-    const notes = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 587.33, 523.25];
+    const droneGain = ctx.createGain();
+    droneGain.gain.value = 0;
+    droneGain.gain.linearRampToValueAtTime(0.03, ctx.currentTime + 2);
+    const drone1 = ctx.createOscillator();
+    drone1.type = 'sine';
+    drone1.frequency.value = 130.81; // C3
+    const drone2 = ctx.createOscillator();
+    drone2.type = 'sine';
+    drone2.frequency.value = 196.0; // G3
+    drone1.connect(droneGain);
+    drone2.connect(droneGain);
+    droneGain.connect(this.masterGain);
+    drone1.start();
+    drone2.start();
+    this.tuneDrone = { drone1, drone2, droneGain };
+
+    const notes = [392.0, 440.0, 523.25, 440.0, 392.0, 329.63]; // G4 A4 C5 A4 G4 E4
     let i = 0;
+    const noteGap = 550; // ms - slow, relaxed tempo
 
     const playNote = () => {
       if (!this.tunePlaying) return;
-      const ctx = this.ctx;
       const t0 = ctx.currentTime;
       const freq = notes[i % notes.length];
       i++;
 
       const osc = ctx.createOscillator();
-      osc.type = 'triangle';
+      osc.type = 'sine';
       osc.frequency.value = freq;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1800;
 
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(0.15, t0 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+      gain.gain.linearRampToValueAtTime(0.1, t0 + 0.12); // gentle fade in
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.85); // long, soft fade out
 
-      osc.connect(gain);
+      osc.connect(filter);
+      filter.connect(gain);
       gain.connect(this.masterGain);
       osc.start(t0);
-      osc.stop(t0 + 0.32);
+      osc.stop(t0 + 0.9);
 
-      this.tuneTimeout = setTimeout(playNote, 190);
+      this.tuneTimeout = setTimeout(playNote, noteGap);
     };
     playNote();
   },
@@ -103,6 +127,14 @@ const Sfx = {
     if (this.tuneTimeout) {
       clearTimeout(this.tuneTimeout);
       this.tuneTimeout = null;
+    }
+    if (this.tuneDrone) {
+      const { drone1, drone2, droneGain } = this.tuneDrone;
+      const t1 = this.ctx.currentTime + 1;
+      droneGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
+      drone1.stop(t1);
+      drone2.stop(t1);
+      this.tuneDrone = null;
     }
   },
 
@@ -382,26 +414,23 @@ class TitleScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // First tap unlocks audio and starts the tune looping so it's never
-    // missed; a second tap stops it, plays a send-off croak, and starts the
-    // game (which is tongue-sound only from there on).
-    let audioStarted = false;
-    this.input.on('pointerdown', () => {
-      if (!audioStarted) {
-        audioStarted = true;
-        Sfx.init();
-        Sfx.resume();
-        Sfx.startTune();
-        playText.setText('TAP AGAIN TO PLAY');
-        return;
-      }
+    // A single tap is the least any browser allows before audio can start
+    // at all (mobile browsers block sound before any interaction, no way
+    // around that) - so one tap unlocks audio, starts the calm tune, lets
+    // it play through a full loop, then sends off with a croak and fades
+    // into gameplay (tongue-sound only from there on).
+    this.input.once('pointerdown', () => {
+      Sfx.init();
+      Sfx.resume();
+      Sfx.startTune();
 
-      this.input.removeAllListeners('pointerdown');
-      Sfx.stopTune();
-      Sfx.playCroak();
-      this.cameras.main.fadeOut(300, 11, 61, 92);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.start('FlyCatcherScene');
+      this.time.delayedCall(3300, () => {
+        Sfx.stopTune();
+        Sfx.playCroak();
+        this.cameras.main.fadeOut(300, 11, 61, 92);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+          this.scene.start('FlyCatcherScene');
+        });
       });
     });
   }
